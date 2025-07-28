@@ -1,10 +1,14 @@
 # .github/workflows/ci-docker.yml
-name: CI / Build & Push Docker Image
+name: Build & Publish Docker image
+
+# Necesitamos permisos de packages para push a GHCR
+permissions:
+  contents: read           # ya lo tenías
+  packages: write          # <-- añadir
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
 
 jobs:
   build-and-push:
@@ -12,7 +16,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # 1) Autenticarnos en GHCR
+      - name: Log into GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2) montar builder
       - uses: docker/setup-buildx-action@v3
+
+      # 3) build & push
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -20,11 +36,6 @@ jobs:
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          # baja todo a minúsculas:
           tags: |
             ghcr.io/maux0290/ai-butler-mvp:latest
             ghcr.io/maux0290/ai-butler-mvp:${{ github.sha }}
-        # si quisieras usar secrets para Docker Hub en su lugar:
-        # secrets:
-        #   username: ${{ secrets.DOCKERHUB_USERNAME }}
-        #   password: ${{ secrets.DOCKERHUB_PASSWORD }}

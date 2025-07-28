@@ -1,5 +1,0 @@
-fastapi                # Framework web ligero y asíncrono
-uvicorn[standard]      # Servidor ASGI para producción/desarrollo
-langchain              # Orquestador de flujos de LLMs
-openai                 # Cliente oficial para llamar a la API de OpenAI
-python-dotenv          # Carga variables de entorno desde .env

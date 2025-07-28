@@ -1,19 +1,19 @@
-import os
-from dotenv import load_dotenv
+# app/config.py
 
-# 1) Carga variables de .env en os.environ
-#    Calcula la ruta al .env en la raíz del proyecto
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))  # carpeta ai-butler-mvp/
-dotenv_path = os.path.join(BASE_DIR, ".env")
-load_dotenv(dotenv_path)
+from pydantic_settings import BaseSettings
 
-# 2) Lee directamente la variable de entorno
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+class Settings(BaseSettings):
+    """
+    Carga la OPENAI_API_KEY desde .env y define el path
+    de la base de datos SQLite (ai_butler.db por defecto).
+    """
+    openai_api_key: str            # Tu clave de OpenAI, obligatoria
+    db_path: str = "ai_butler.db"  # Fichero SQLite en /app dentro del contenedor
 
-# 3) Valida que exista, o lanza un error claro
-if not OPENAI_API_KEY:
-    raise RuntimeError(
-        "La variable OPENAI_API_KEY no está definida. "
-        "Revisa tu archivo .env en la raíz de ai-butler-mvp."
-    )
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+# Instancia global que luego importas en chains.py, db.py, etc.
+settings = Settings()
 

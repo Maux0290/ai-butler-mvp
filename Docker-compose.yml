@@ -1,24 +1,13 @@
-# docker-compose.yml
+# docker-compose.yml (en la raíz del proyecto)
+
 services:
   ai-butler:
-    # 1) Para desarrollo: construye la imagen localmente
-    build:
-      context: .
-      args:
-        OPENAI_API_KEY: ${OPENAI_API_KEY}
-    # 2) Para producción: si ya tienes la imagen en GHCR, coméntalo
-    # image: ghcr.io/Maux0290/ai-butler-mvp:latest
-
-    container_name: ai-butler-mvp
+    build: .
+    image: maux0290/ai-butler-mvp:latest
     env_file:
       - .env
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
-      - ./ai_butler.db:/app/ai_butler.db
-      - faiss_index:/app/faiss_index
-
-volumes:
-  faiss_index:
+      - ./data:/app/data      # <— bind-mount local → contenedor
 

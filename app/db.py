@@ -29,14 +29,54 @@ def init_db():
     conn.commit()
     conn.close()
 
-def save_conversation(business: str, question: str, answer: str):
+
+def create_users_table():
     conn = get_connection()
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+
+def add_user_id_to_conversations():
+    """
+    Añade la columna user_id a la tabla conversations si no existe.
+    Permite asociar cada conversación a un usuario específico.
+    """
+    conn = get_connection()
+    try:
+        # ALTER TABLE solo añade la columna si no existe ya
+        conn.execute('ALTER TABLE conversations ADD COLUMN user_id INTEGER')
+    except Exception as e:
+        # Si ya existe, ignora el error específico de columna duplicada
+        if "duplicate column" not in str(e).lower():
+            raise
+    conn.commit()
+    conn.close()
+
+
+def save_conversation(business, question, answer, user_id=None):
+    """
+    Guarda una nueva conversación en la base de datos.
+    Incluye el user_id si se proporciona.
+    """
+    conn = get_connection()
+    # Inserta la conversación con el ID del usuario (puede ser None si es público)
     conn.execute(
-        "INSERT INTO conversations (business, question, answer, created_at) VALUES (?, ?, ?, ?)",
-        (business, question, answer, datetime.utcnow().isoformat()),
+        "INSERT INTO conversations (business, question, answer, created_at, user_id) VALUES (?, ?, ?, datetime('now'), ?)",
+        (business, question, answer, user_id)
     )
     conn.commit()
     conn.close()
+
 
 def fetch_all_conversations() -> list[Conversation]:
     conn = get_connection()

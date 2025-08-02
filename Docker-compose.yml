@@ -1,13 +1,19 @@
-# docker-compose.yml (en la raíz del proyecto)
-
+version: "3.8"
 services:
   ai-butler:
-    build: .
-    image: maux0290/ai-butler-mvp:latest
-    env_file:
-      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile_produccion
+    container_name: ai-butler-prod
+    restart: unless-stopped
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     volumes:
-      - ./data:/app/data      # <— bind-mount local → contenedor
+      - ./logs:/app/logs          # logs persistentes
+      - ./data:/app/data          # carpeta persistente para BD, archivos
+    environment:
+      - TZ=Europe/Madrid          # ajusta tu zona horaria si lo deseas
+
 

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI-Butler</title>
+</head>
+<body>
+    <h1>Consulta para tu negocio</h1>
+    <form action="/ask-web/" method="post">
+        <label for="business">Negocio:</label>
+        <input type="text" name="business" required>
+        <br><br>
+        <label for="question">Pregunta:</label>
+        <input type="text" name="question" required>
+        <br><br>
+        <button type="submit">Enviar</button>
+    </form>
+    {% if answer %}
+        <h2>Respuesta:</h2>
+        <p>{{ answer }}</p>
+    {% endif %}
+</body>
+</html>

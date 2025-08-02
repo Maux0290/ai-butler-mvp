@@ -33,9 +33,9 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile
+          file: ./Dockerfile_produccion
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ghcr.io/maux0290/ai-butler-mvp:latest
-            ghcr.io/maux0290/ai-butler-mvp:${{ github.sha }}
+            ghcr.io/maux0290/ai-butler-produccion:latest
+            ghcr.io/maux0290/ai-butler-produccion:${{ github.sha }}

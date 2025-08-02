@@ -6,6 +6,12 @@ langchain-community
 faiss-cpu
 openai
 python-dotenv
-
+jinja2
+aiofiles
+python-multipart
+passlib[bcrypt]
+python-jose[cryptography]
+slowapi
+sentry-sdk
  
  

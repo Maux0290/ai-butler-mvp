@@ -1,23 +1,24 @@
-# Usa una imagen oficial de Python como base
+# Dockerfile_produccion
+
 FROM python:3.11-slim
 
-# Establece el directorio de trabajo dentro del contenedor
+# Establecer directorio de trabajo
 WORKDIR /app
 
-# Copia solo los requirements primero (para aprovechar el cache)
+# Copiar requirements e instalar dependencias primero (aprovecha el cache de Docker)
 COPY requirements.txt .
 
-# Instala dependencias
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia el resto del código
 COPY . .
 
-# Da permisos de escritura al directorio de logs (si es necesario)
-RUN mkdir -p /app/logs && chmod -R 777 /app/logs
+# Crea directorios persistentes para logs y datos si no existen
+RUN mkdir -p /app/logs /app/data && chmod -R 777 /app/logs /app/data
 
 # Puerto por defecto de FastAPI
 EXPOSE 8000
 
-# Comando de arranque en producción (sin --reload)
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--log-config", "logging_config.yml"]
+# Comando de arranque (ajusta si tu app principal está en otra carpeta o con otro nombre)
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--log-config", "logging_config.yml"]
+

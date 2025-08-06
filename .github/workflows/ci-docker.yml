@@ -55,7 +55,9 @@ jobs:
           sleep 2
         done
 
+    - name: Añade el root al PYTHONPATH
+      run: echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
+
     - name: Ejecuta los tests automáticos
       run: |
         pytest tests/ --maxfail=1 --disable-warnings -q
-

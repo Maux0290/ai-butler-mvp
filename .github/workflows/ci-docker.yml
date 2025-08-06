@@ -1,41 +1,61 @@
-# .github/workflows/ci-docker.yml
-name: Build & Publish Docker image
-
-# Necesitamos permisos de packages para push a GHCR
-permissions:
-  contents: read           # ya lo tenías
-  packages: write          # <-- añadir
+name: CI/CD - AI Butler (PRODUCCIÓN)
 
 on:
   push:
-    branches: [ produccion ]
+    branches: [produccion]
+  pull_request:
+    branches: [produccion]
 
 jobs:
-  build-and-push:
+  test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ai-butler
+          POSTGRES_PASSWORD: 01234
+          POSTGRES_DB: butler_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U ai-butler"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DATABASE_URL: postgresql://ai-butler:01234@localhost:5432/butler_test
+      SECRET_KEY: supersecretkey_for_tests
+      ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      # Añade otras variables necesarias para tu app
+
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      # 1) Autenticarnos en GHCR
-      - name: Log into GitHub Container Registry
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
-      # 2) montar builder
-      - uses: docker/setup-buildx-action@v3
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-      # 3) build & push
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile_produccion
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/maux0290/ai-butler-produccion:latest
-            ghcr.io/maux0290/ai-butler-produccion:${{ github.sha }}
+    - name: Espera a que Postgres esté listo
+      run: |
+        for i in {1..10}; do
+          if pg_isready -h localhost -U ai-butler; then
+            echo "Postgres está listo"
+            break
+          fi
+          echo "Esperando a Postgres..."
+          sleep 2
+        done
+
+    - name: Ejecuta los tests automáticos
+      run: |
+        pytest tests/ --maxfail=1 --disable-warnings -q
+

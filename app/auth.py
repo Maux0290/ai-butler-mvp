@@ -18,7 +18,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     )
     try:
         # Decodifica el JWT usando la clave secreta y algoritmo definido en settings
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         user_id: str = payload.get("sub")           # subject: ID de usuario
         username: str = payload.get("username")     # nombre de usuario
         role: str = payload.get("role")             # rol del usuario (user/admin)

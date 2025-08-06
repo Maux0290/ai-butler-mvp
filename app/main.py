@@ -1,36 +1,37 @@
 # app/main.py
 
-import sqlite3
-import logging.config
-import yaml
-from fastapi import FastAPI, HTTPException, Depends, Form, Request
+import logging
+import sentry_sdk
+import os
+from fastapi import FastAPI, HTTPException, Depends, Form, Request, Path
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from httpx import HTTPError, RequestError                      # <— sustituye a openai.error
-from .utils import hash_password, verify_password              # Funciones de hashing
-from jose import jwt                                          # Librería JWT
+from httpx import HTTPError, RequestError
+from jose import jwt
 from datetime import datetime, timedelta
-from .auth import get_current_user, require_admin     # Importa las dependencias
+
+from .utils import hash_password, verify_password
+from .auth import get_current_user, require_admin
+from .config import settings
+from .db import get_db, Base, engine
+from .models import User, Conversation as ConversationModel  # SQLAlchemy models
+from .schemas import (
+    Conversation as ConversationSchema,  # Pydantic model
+    UserCreate, UserAdminCreate, UserOut, QAQuery
+)
+from .chains import qa_chain, chain
+from .crud import (
+    create_user, create_user_admin, get_users, update_user_role,
+    create_conversation, get_conversations, get_conversation_by_id
+)
+
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+from sqlalchemy.orm import Session
 
-from .schemas import Conversation, UserCreate, UserOut, QAQuery
-from .config import settings
-from .db import get_connection, init_db, create_users_table, save_conversation, fetch_all_conversations, fetch_conversation_by_id, add_user_id_to_conversations
-from .chains import qa_chain, chain
-from .utils import hash_password      # from .exceptions import ExternalServiceError    # opcional, si ya no lo usas puedes comentarlo
-import logging
-import sentry_sdk
-
-
-# --------- 1. Inicializa logging ANTES DE TODO ---------
-
-# --------- 3. Inicializa base de datos ---------
-init_db()
-create_users_table()
-add_user_id_to_conversations()
+# -------- 1. Inicializa logging avanzado --------
 
 LOG_FILENAME = "ai_butler.log"
 
@@ -54,32 +55,33 @@ for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access", "ai_butler", "
     log.addHandler(file_handler)
     log.addHandler(stream_handler)
 
-logger = logging.getLogger("ai_butler")  # Usamos siempre este logger por convención
+logger = logging.getLogger("ai_butler")
 logger.info("AI Butler API iniciada con logging centralizado y Sentry.")
 
-# Inicializa Sentry si lo usas
+# -------- 2. Inicializa Sentry --------
 sentry_sdk.init(
     dsn="https://c1c0778ed2b9b9976199067c3893523b@o4509769652240384.ingest.de.sentry.io/4509769655189584",
     traces_sample_rate=1.0,
-    environment="development",
+    environment="production",   # Cambia a "production" en despliegue real
 )
-logger.info("AI Butler API iniciada con logging centralizado y Sentry.")
-# --------- 4. Crea la app ---------
+
+# -------- 3. Inicializa la base de datos (solo para desarrollo, en prod usa Alembic) --------
+Base.metadata.create_all(bind=engine)
+IS_TESTING = os.getenv("TESTING", "0") == "1"
+DEFAULT_LIMITS = ["1000/minute"] if IS_TESTING else ["5/minute"]
+
+limiter = Limiter(key_func=get_remote_address, default_limits=DEFAULT_LIMITS)
+# -------- 4. Inicializa la app y el limitador de velocidad --------
 app = FastAPI(
     title="AI-Butler MVP con RAG",
     version="0.1.0",
 )
 
-# --- Inicialización del limitador ---
 limiter = Limiter(key_func=get_remote_address)
-
-# --- Inicialización de FastAPI ---
-app = FastAPI()
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# --------- 5. Handler global de excepciones ---------
-# Handler para HTTPException que loguea errores de FastAPI
+# -------- 5. Handler global de excepciones HTTP --------
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     logger.error(
@@ -90,8 +92,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         content={"detail": exc.detail},
     )
 
-# --- 4. Handler global de errores (solo uno, centraliza todo) ---
-# ------ Handler global para cualquier otra excepción no gestionada ------
+# -------- 6. Handler global para excepciones no gestionadas --------
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.exception(f"Excepción no gestionada en {request.method} {request.url.path}: {repr(exc)}")
@@ -100,262 +101,199 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Error de servidor. Ya ha sido reportado a soporte."}
     )
-# --------- 6. Modelo ejemplo de petición ---------
-class QAQuery(BaseModel):
-    business: str
-    question: str
 
-# ------ Endpoint de ejemplo para probar errores ------
+# -------- 7. Modelos de petición/entrada --------
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+# -------- 8. Endpoints --------
+
+@app.get("/", tags=["default"])
+async def health_check():
+    """Health check simple."""
+    return {"status": "OK"}
+
 @app.get("/force-error/")
 async def force_error():
+    """Endpoint para forzar un error y probar logging/Sentry."""
     logger.info("Fuerza un error para probar logs y Sentry")
     raise ValueError("Error forzado para probar logs")
 
+# -------- 8.1 Autenticación y registro --------
 
-# Endpoint protegido: solo usuarios autenticados pueden ver su perfil
+
+@app.post("/register/", response_model=UserOut)
+async def register(user: UserCreate, db: Session = Depends(get_db)):
+    """
+    Registro público: crea usuario SIEMPRE con rol 'user'.
+    """
+    hashed = hash_password(user.password)
+    try:
+        db_user = create_user(
+            db,
+            user,      # Pasamos directamente el modelo UserCreate
+            hashed     # No se pasa role, la función lo forza internamente
+        )
+        return UserOut.from_orm(db_user)
+    except ValueError as e:
+        logger.error(f"Error en registro: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/login/", response_model=TokenOut)
+#@limiter.limit("5/minute")
+@limiter.limit("1000/minute")  # Relaja el límite para pruebas, cambia a "5/minute" en producción
+async def login(request: Request, username: str = Form(...), password: str = Form(...), db: Session = Depends(get_db)):
+    """
+    Login de usuario. Devuelve un JWT.
+    """
+    user = db.query(User).filter(User.username == username).first()
+    if not user or not verify_password(password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
+    data = {
+        "sub": str(user.id),
+        "username": user.username,
+        "role": user.role,
+        "exp": datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    }
+    token = jwt.encode(data, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return {"access_token": token, "token_type": "bearer"}
+
+# -------- 8.2 Endpoints solo para administradores --------
+
+@app.post("/admin/create-user/", response_model=UserOut, dependencies=[Depends(require_admin)], tags=["admin"])
+async def admin_create_user(user: UserAdminCreate, db: Session = Depends(get_db)):
+    """
+    Solo un admin puede crear usuarios con cualquier rol ('user' o 'admin').
+    Integra crud.create_user_admin.
+    """
+    hashed = hash_password(user.password)
+    try:
+        db_user = create_user_admin(db, user, hashed)
+        return UserOut.from_orm(db_user)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.patch("/admin/users/{user_id}/role/", response_model=UserOut, dependencies=[Depends(require_admin)], tags=["admin"])
+async def change_user_role(user_id: int = Path(..., gt=0), new_role: str = Form(...), db: Session = Depends(get_db)):
+    """
+    Cambia el rol de un usuario existente ('user' <-> 'admin'). Solo admins pueden hacerlo.
+    Integra crud.update_user_role.
+    """
+    try:
+        user = update_user_role(db, user_id, new_role)
+        return UserOut.from_orm(user)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@app.get("/usuarios/", tags=["admin"], response_model=list[UserOut], dependencies=[Depends(require_admin)])
+async def listar_usuarios(db: Session = Depends(get_db)):
+    """
+    Listar todos los usuarios (solo admins).
+    Integra crud.get_users.
+    """
+    users = get_users(db)
+    return [UserOut.from_orm(u) for u in users]
+
+# -------- 8.3 Endpoints para usuarios autenticados --------
+
 @app.get("/perfil/")
 async def profile(current_user: dict = Depends(get_current_user)):
-    """
-    Solo usuarios autenticados pueden acceder a este endpoint.
-    """
+    """Solo usuarios autenticados pueden acceder."""
     return {
         "msg": f"Bienvenido {current_user['username']}. Tu rol es: {current_user['role']}"
     }
 
-# Endpoint solo para administradores
-@app.get("/admin/solo/")
-async def admin_only(current_user: dict = Depends(require_admin)):
-    """
-    Solo usuarios con rol admin pueden acceder a este endpoint.
-    """
-    return {
-        "msg": f"Hola, admin {current_user['username']}!"
-    }
-
-# Endpoint protegido: cualquier usuario logueado
 @app.get("/mi-perfil/", tags=["usuarios"])
 async def mi_perfil(current_user: dict = Depends(get_current_user)):
-    """
-    Retorna datos del usuario autenticado.
-    """
+    """Devuelve los datos del usuario autenticado."""
     return {
         "msg": f"Bienvenido {current_user['username']}",
         "role": current_user['role']
     }
 
-# Endpoint protegido solo para admins
-@app.get("/admin/configuracion/", tags=["admin"])
-async def configuracion_admin(current_user: dict = Depends(require_admin)):
-    """
-    Solo accesible para usuarios con rol 'admin'.
-    """
-    return {
-        "msg": f"¡Hola, administrador {current_user['username']}!"
-    }
-
-@app.get("/", tags=["default"])
-async def health_check():
-    return {"status": "OK"}
-
-# Registro de usuario
-@app.post("/register/", response_model=UserOut)
-async def register(user: UserCreate):
-    """
-    Registra un nuevo usuario con los datos dados en el modelo UserCreate.
-    Si no se especifica un rol, el valor por defecto es 'user'.
-    """
-    conn = get_connection()                         # Abre una conexión a la base de datos
-    cur = conn.cursor()                             # Crea un cursor para ejecutar sentencias SQL
-    hashed = hash_password(user.password)           # Hashea la contraseña antes de guardarla
-    try:
-        # Inserta el nuevo usuario, usando el rol enviado (o 'user' si es None)
-        cur.execute(
-            "INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)",
-            (user.username, user.email, hashed, user.role)
-        )
-        conn.commit()                              # Guarda cambios en la base de datos
-        user_id = cur.lastrowid                    # Obtiene el id generado automáticamente para el usuario
-        # Recupera los datos completos del usuario recién creado
-        cur.execute("SELECT id, username, email, role, created_at FROM users WHERE id = ?", (user_id,))
-        row = cur.fetchone()
-        # Convierte los resultados a un diccionario y luego a un modelo Pydantic para la respuesta
-        return UserOut(**dict(zip([desc[0] for desc in cur.description], row)))
-    except sqlite3.IntegrityError:
-        # Si el username o email ya existen, retorna error 400
-        raise HTTPException(status_code=400, detail="Usuario o email ya existe")
-    finally:
-        conn.close()                              # Siempre cierra la conexión, aunque haya error
-
-# Modelo para la respuesta del login (token JWT)
-class TokenOut(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
-# Endpoint de login: devuelve JWT
-@app.post("/login/", response_model=TokenOut)
-@limiter.limit("5/minute")# Solo 5 logins por minuto por IP
-async def login(request: Request, username: str = Form(...), password: str = Form(...)):
-    conn = get_connection()                                   # Conexión a la BD
-    cur = conn.cursor()
-    # Busca usuario por username
-    cur.execute("SELECT id, username, email, password_hash, role, created_at FROM users WHERE username = ?", (username,))
-    row = cur.fetchone()
-    conn.close()
-    if not row:
-        # Si no encuentra el usuario, responde error 401
-        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-    user = dict(zip([desc[0] for desc in cur.description], row))  # Convierte resultado en dict
-    # Verifica contraseña enviada contra el hash almacenado
-    if not verify_password(password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Credenciales incorrectas")
-    # Prepara los datos a incluir en el JWT
-    data = {
-        "sub": str(user["id"]),                               # sub: subject = ID de usuario
-        "username": user["username"],                         # username
-        "role": user["role"],                                 # role: user/admin
-        "exp": datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)  # expiración
-    }
-    # Genera el JWT firmado
-    token = jwt.encode(data, settings.secret_key, algorithm=settings.algorithm)
-    # Devuelve el token y el tipo de token (bearer)
-    return {"access_token": token, "token_type": "bearer"}
+# -------- 8.4 Endpoints de conversación --------
 
 @app.post("/ask-rag/", tags=["default"])
 @limiter.limit("30/minute")
 async def ask_rag(
     request: Request,
     payload: QAQuery,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db)
 ):
     """
-    Crea una conversación asociada al usuario autenticado.
+    Usa RAG para responder y guarda la conversación asociada al usuario autenticado.
+    Integra crud.create_conversation.
     """
     try:
-        # answer = await qa_chain.arun({ ... })    # <--- tu lógica real
-        # save_conversation(...)
-        # return {"answer": answer}
-        raise ValueError("Error forzado para probar logs")  # <-- descomenta para probar error real
-
-    except (HTTPError, RequestError) as e:
-        logger.error(f"Error HTTP en /ask-rag/: {str(e)}", exc_info=True)
-        raise HTTPException(
-            status_code=502,
-            detail="Error al comunicarse con el servicio de IA, inténtalo más tarde."
+        # answer = await qa_chain.arun({...})
+        answer = "respuesta de ejemplo"
+        conv = create_conversation(
+            db, business=payload.business, question=payload.question, answer=answer, user_id=current_user["id"]
         )
+        return {"answer": answer}
     except Exception as e:
         logger.exception(f"Error inesperado en /ask-rag/: {str(e)}")
-        raise  # Esto lo atrapará el handler global y lo enviará también a Sentry y al log
-
-
-@app.get("/usuarios/", tags=["admin"], response_model=list[UserOut])
-async def listar_usuarios(current_user: dict = Depends(require_admin)):
-    """
-    Permite a los administradores listar todos los usuarios registrados.
-    """
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT id, username, email, role, created_at FROM users")
-    rows = cur.fetchall()
-    conn.close()
-    # Construye lista de UserOut usando los campos de la tabla
-    return [UserOut(**dict(zip([desc[0] for desc in cur.description], row))) for row in rows]
-
-@app.post("/ask-rag/", tags=["default"])
-async def ask_rag(payload: QAQuery):
-    """
-    Pregunta con RAG: usa qa_chain para obtener respuesta
-    """
-    try:
-        # Usamos .arun (devuelve directamente string)
-        answer: str = await qa_chain.arun({
-            "business": payload.business,
-            "question": payload.question
-        })
-
-        # Guardamos conversación
-        save_conversation(payload.business, payload.question, answer)
-        return {"answer": answer}
-
-    except (HTTPError, RequestError):
-        # Errores de red / HTTP al llamar a OpenAI
-        raise HTTPException(
-            status_code=502,
-            detail="Error al comunicarse con el servicio de IA, inténtalo más tarde."
-        )
-    except OpenAIError as e:
-        # Capturamos cualquier excepción de la librería OpenAI
-        # p.ej. RateLimitError, APIError, etc.
-        raise HTTPException(
-            status_code=503,
-            detail=f"Servicio de IA no disponible: {e}"
-        )
-    except Exception as e:
-        # Cualquier otra excepción
         raise HTTPException(
             status_code=500,
             detail="Error interno del servidor."
         )
 
+@app.get("/conversations/", response_model=list[ConversationSchema], tags=["conversations"])
+async def list_conversations(db: Session = Depends(get_db)):
+    """
+    Devuelve todas las conversaciones grabadas, ordenadas por fecha.
+    Integra crud.get_conversations.
+    """
+    conversations = get_conversations(db)
+    return [ConversationSchema.from_orm(c) for c in conversations]
+
+@app.get("/conversations/{conversation_id}/", response_model=ConversationSchema, tags=["conversations"])
+async def get_conversation(conversation_id: int, db: Session = Depends(get_db)):
+    """
+    Recupera una conversación por su ID.
+    Integra crud.get_conversation_by_id.
+    """
+    conv = get_conversation_by_id(db, conversation_id)
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return ConversationSchema.from_orm(conv)
+
+# -------- 8.5 Endpoint consulta simple sin RAG --------
+
 @app.get("/ask/", tags=["default"])
 async def ask_simple(business: str, question: str):
     """
-    Consulta simple sin RAG: ejecuta chain directo
+    Consulta simple sin RAG.
     """
     try:
         answer = chain.run({"business": business, "question": question})
         return {"answer": answer}
     except Exception as e:
+        logger.error(f"Error en /ask/: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-
-@app.get(
-    "/conversations/",
-    response_model=list[Conversation],
-    tags=["conversations"]
-)
-async def list_conversations():
-    """
-    Devuelve todas las conversaciones grabadas, ordenadas por fecha.
-    """
-    try:
-        return fetch_all_conversations()
-    except Exception:
-        raise HTTPException(status_code=500, detail="Error al leer conversaciones")
-
-@app.get(
-    "/conversations/{conversation_id}/",
-    response_model=Conversation,
-    tags=["conversations"]
-)
-async def get_conversation(conversation_id: int):
-    """
-    Recupera una conversación por su ID.
-    """
-    conv = fetch_conversation_by_id(conversation_id)
-    if not conv:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    return conv
+# -------- 9. Static files y plantillas web --------
 
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from fastapi.requests import Request
-from fastapi import Form
-
 
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
-
 @app.get("/web/", response_class=HTMLResponse)
 async def render_form(request: Request):
+    """Renderiza el formulario web."""
     return templates.TemplateResponse("index.html", {"request": request})
-
 
 @app.post("/ask-web/", response_class=HTMLResponse)
 async def ask_from_web(request: Request, business: str = Form(...), question: str = Form(...)):
+    """
+    Procesa preguntas desde el formulario web.
+    """
     try:
         result = await qa_chain.arun({
             "business": business,
@@ -370,6 +308,4 @@ async def ask_from_web(request: Request, business: str = Form(...), question: st
             "request": request,
             "answer": f"Error: {str(e)}"
         })
-
-
 

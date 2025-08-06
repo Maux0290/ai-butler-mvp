@@ -26,7 +26,7 @@ def main():
         return
 
     docs = load_faqs(faqs_path)
-    store = build_vectorstore(docs, settings.openai_api_key)
+    store = build_vectorstore(docs, settings.OPENAI_API_KEY)
     print(f"✅ Índice FAISS generado en {base / 'faiss_index'}")
 
 if __name__ == "__main__":

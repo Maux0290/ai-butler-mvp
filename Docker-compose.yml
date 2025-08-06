@@ -1,20 +1,80 @@
-version: "3.8"
 services:
+  # --------- SERVICIO PRINCIPAL: AI Butler (FastAPI) ---------
   ai-butler:
+    image: ghcr.io/maux0290/ai-butler-produccion:latest         # Imagen publicada por tu pipeline CI/CD
+    container_name: ai-butler
+    restart: always
+    env_file: .env                                             # Variables sensibles y de entorno de producción
+    ports:
+      - "8000:8000"                                            # Expón solo el puerto de FastAPI
+    depends_on:
+      - db
+    volumes:
+      - ./logs:/app/logs                                     # (Descomenta si quieres logs persistentes)
+      - ./data/static:/app/static                            # (Descomenta si usas archivos estáticos)
+    networks:
+      - ai-butler-net
+
+  # --------- BASE DE DATOS: PostgreSQL ---------
+  db:
+    image: postgres:16-alpine
+    container_name: ai-butler-db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    # En producción, **mejor NO exponer el puerto 5432** a menos que necesites acceder desde fuera.
+    # ports:
+    #   - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ai-butler-net
+  ai-butler-dev:
     build:
       context: .
-      dockerfile: Dockerfile_produccion
-    container_name: ai-butler-prod
-    restart: unless-stopped
+      dockerfile: Dockerfile_dev
+    container_name: ai-butler-dev
+    restart: always
+    env_file: .env
     ports:
-      - "8000:8000"
-    env_file:
-      - .env
+      - "8001:8000"               # Usa otro puerto si lo necesitas
+    depends_on:
+      - db
     volumes:
-      - ./logs:/app/logs          # logs persistentes
-      - ./data:/app/data          # carpeta persistente para BD, archivos
+      - .:/app                    # Monta tu código local para hot-reload
+    networks:
+      - ai-butler-net
     environment:
-      - TZ=Europe/Madrid          # ajusta tu zona horaria si lo deseas
+      - TESTING=1      
+
+  # --------- (Opcional: Habilita solo si necesitas administración gráfica) ---------
+  # pgadmin:
+  #   image: dpage/pgadmin4
+  #   container_name: pgadmin
+  #   restart: unless-stopped
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
+  #     PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+  #   ports:
+  #     - "5050:80"
+  #   depends_on:
+  #     - db
+  #   networks:
+  #     - ai-butler-net
 
 
+
+# --------- VOLUMENES PERSISTENTES ---------
+volumes:
+  postgres_data:
+
+# --------- RED PRIVADA ---------
+networks:
+  ai-butler-net:
+    driver: bridge
+
+
+  
 

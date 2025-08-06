@@ -13,5 +13,12 @@ passlib[bcrypt]
 python-jose[cryptography]
 slowapi
 sentry-sdk
+sqlalchemy
+pydantic
+pytest
+httpx
+email-validator
+psycopg2-binary
+
  
  

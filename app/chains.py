@@ -55,7 +55,7 @@ chat_prompt = ChatPromptTemplate.from_messages(
 
 # 5) Instanciamos ChatOpenAI
 llm = ChatOpenAI(
-    openai_api_key=settings.openai_api_key,
+    openai_api_key=settings.OPENAI_API_KEY,
     temperature=0.2,
     max_tokens=200
 )

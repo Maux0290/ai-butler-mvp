@@ -5,8 +5,9 @@ on:
     branches: [ produccion ]
 
 jobs:
-  build_and_push:
+   build_and_push:
     runs-on: ubuntu-latest
+    needs: test           # Este job solo corre si los tests pasan
     permissions:
       contents: read
       packages: write
@@ -26,10 +27,10 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: ./Dockerfile_produccion
+        file: ./Dockerfile_produccion     # Usa tu Dockerfile de producción
         platforms: linux/amd64,linux/arm64
         push: true
         tags: |
-            ghcr.io/maux0290/ai-butler-produccion:latest
-            ghcr.io/maux0290/ai-butler-produccion:${{ github.sha }}
+          ghcr.io/maux0290/ai-butler-produccion:latest
+          ghcr.io/maux0290/ai-butler-produccion:${{ github.sha }}
 

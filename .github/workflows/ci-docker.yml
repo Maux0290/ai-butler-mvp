@@ -26,14 +26,14 @@ jobs:
           --health-retries=5
 
     env:
-      OPENAI_API_KEY: dummy-key-for-ci
-      SECRET_KEY: supersecretkey_for_tests
-      ALGORITHM: HS256
-      ACCESS_TOKEN_EXPIRE_MINUTES: 60
       POSTGRES_USER: ai-butler
       POSTGRES_PASSWORD: 01234
       POSTGRES_DB: butler_test
       DATABASE_URL: postgresql://ai-butler:01234@localhost:5432/butler_test
+      SECRET_KEY: supersecretkey_for_tests
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 60
+      OPENAI_API_KEY: dummy-key-for-ci
       # Añade otras variables necesarias para tu app
 
     steps:
@@ -66,3 +66,4 @@ jobs:
     - name: Ejecuta los tests automáticos
       run: |
         pytest tests/ --maxfail=1 --disable-warnings -q
+

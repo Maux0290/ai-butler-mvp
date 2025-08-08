@@ -43,5 +43,6 @@ if __name__ == "__main__":
     print("ACCESS_TOKEN_EXPIRE_MINUTES:", settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     print("POSTGRES_USER:", settings.POSTGRES_USER)
     print("POSTGRES_DB:", settings.POSTGRES_DB)
+    print("POSTGRES_PASSWORD:", settings.POSTGRES_PASSWORD)
 
 

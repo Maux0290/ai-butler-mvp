@@ -16,25 +16,29 @@ jobs:
         env:
           POSTGRES_USER: ai-butler
           POSTGRES_PASSWORD: 01234
-          POSTGRES_DB: butler_test
+          POSTGRES_DB: butler_test  # intentará crearla al iniciar
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U ai-butler"
+          --health-cmd="pg_isready -U ai-butler -h localhost"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
 
     env:
-      POSTGRES_USER: "ai-butler"
-      POSTGRES_PASSWORD: "01234"
-      POSTGRES_DB: "butler_test"
-      DATABASE_URL: postgresql://ai-butler:01234@localhost:5432/butler_test
+      # Vars para la app en CI (no usa tu .env local)
+      OPENAI_API_KEY: dummy-key-for-ci
       SECRET_KEY: supersecretkey_for_tests
       ALGORITHM: HS256
       ACCESS_TOKEN_EXPIRE_MINUTES: 60
-      OPENAI_API_KEY: dummy-key-for-ci
-      # Añade otras variables necesarias para tu app
+      POSTGRES_USER: "ai-butler"
+      POSTGRES_PASSWORD: "01234"
+      POSTGRES_DB: "butler_test"
+      # ⚠️ Host = nombre del servicio ("postgres"), no "localhost"
+      DATABASE_URL: postgresql://ai-butler:01234@postgres:5432/butler_test
+      TESTING: "1"
+      # Para psql
+      PGPASSWORD: "01234"
 
     steps:
     - uses: actions/checkout@v4
@@ -48,11 +52,16 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+        sudo apt-get update
+        sudo apt-get install -y postgresql-client
 
-    - name: Espera a que Postgres esté listo
+    - name: Añade el root al PYTHONPATH
+      run: echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
+
+    - name: Espera a que Postgres esté listo (servicio 'postgres')
       run: |
-        for i in {1..10}; do
-          if pg_isready -h localhost -U ai-butler; then
+        for i in {1..20}; do
+          if pg_isready -h postgres -U ai-butler; then
             echo "Postgres está listo"
             break
           fi
@@ -60,10 +69,22 @@ jobs:
           sleep 2
         done
 
-    - name: Añade el root al PYTHONPATH
-      run: echo "PYTHONPATH=$(pwd)" >> $GITHUB_ENV
+    - name: Crea la base de datos si no existe (conéctate a 'postgres')
+      run: |
+        # ¡IMPORTANTE! Especificar -d postgres para conectarnos a la BD sistema
+        psql -h postgres -U ai-butler -d postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'butler_test';" | grep -q 1 \
+          || psql -h postgres -U ai-butler -d postgres -c "CREATE DATABASE butler_test;"
+
+    - name: Inicializa el esquema (crea tablas con SQLAlchemy)
+      run: |
+        python - <<'PY'
+        from app.db import Base, engine
+        Base.metadata.create_all(bind=engine)
+        print("✔ Esquema creado/actualizado")
+        PY
 
     - name: Ejecuta los tests automáticos
       run: |
         pytest tests/ --maxfail=1 --disable-warnings -q
+
 

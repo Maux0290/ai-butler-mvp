@@ -1,17 +1,19 @@
+version: "3.9"
+
 services:
   # --------- SERVICIO PRINCIPAL: AI Butler (FastAPI) ---------
   ai-butler:
-    image: ghcr.io/maux0290/ai-butler-produccion:latest         # Imagen publicada por tu pipeline CI/CD
+    image: ghcr.io/maux0290/ai-butler-produccion:latest
     container_name: ai-butler
     restart: always
-    env_file: .env                                             # Variables sensibles y de entorno de producción
+    env_file: .env
     ports:
-      - "8000:8000"                                            # Expón solo el puerto de FastAPI
+      - "8000:8000"
     depends_on:
       - db
     volumes:
-      - ./logs:/app/logs                                     # (Descomenta si quieres logs persistentes)
-      - ./data/static:/app/static                            # (Descomenta si usas archivos estáticos)
+      - ./logs:/app/logs
+      - ./data/static:/app/static
     networks:
       - ai-butler-net
 
@@ -23,14 +25,16 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    # En producción, **mejor NO exponer el puerto 5432** a menos que necesites acceder desde fuera.
-    # ports:
-    #   - "5432:5432"
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./data/init:/docker-entrypoint-initdb.d    # 👈 nueva ruta para init.sql
     networks:
       - ai-butler-net
+
+  # --------- SERVICIO DEV: AI Butler con hot-reload ---------
   ai-butler-dev:
     build:
       context: .
@@ -39,17 +43,17 @@ services:
     restart: always
     env_file: .env
     ports:
-      - "8001:8000"               # Usa otro puerto si lo necesitas
+      - "8001:8000"
     depends_on:
       - db
     volumes:
-      - .:/app                    # Monta tu código local para hot-reload
+      - .:/app
     networks:
       - ai-butler-net
     environment:
       - TESTING=1      
 
-  # --------- (Opcional: Habilita solo si necesitas administración gráfica) ---------
+  # --------- (Opcional: pgAdmin) ---------
   # pgadmin:
   #   image: dpage/pgadmin4
   #   container_name: pgadmin
@@ -64,8 +68,6 @@ services:
   #   networks:
   #     - ai-butler-net
 
-
-
 # --------- VOLUMENES PERSISTENTES ---------
 volumes:
   postgres_data:
@@ -74,7 +76,6 @@ volumes:
 networks:
   ai-butler-net:
     driver: bridge
-
 
   
 

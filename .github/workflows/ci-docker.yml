@@ -12,10 +12,10 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:15
         env:
           POSTGRES_USER: ai-butler
-          POSTGRES_PASSWORD: 01234
+          POSTGRES_PASSWORD: ai-butler
           POSTGRES_DB: butler_test
         ports:
           - 5432:5432
@@ -26,7 +26,10 @@ jobs:
           --health-retries=5
 
     env:
-      DATABASE_URL: postgresql://ai-butler:01234@localhost:5432/butler_test
+      DATABASE_URL: postgresql://ai-butler:ai-butler@postgres:5432/butler_test
+      POSTGRES_USER: ai-butler
+      POSTGRES_PASSWORD: ai-butler
+      POSTGRES_DB: butler_test
       SECRET_KEY: supersecretkey_for_tests
       ACCESS_TOKEN_EXPIRE_MINUTES: 60
       OPENAI_API_KEY: test_key

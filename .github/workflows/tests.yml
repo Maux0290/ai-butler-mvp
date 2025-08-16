@@ -1,4 +1,4 @@
-name: CI/CD - AI Butler (DEV & PRODUCCIÓN)
+name: CI - Tests (DEV & PRODUCCIÓN)
 
 on:
   push:
@@ -14,19 +14,19 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: ai-butler
+          POSTGRES_PASSWORD: 01234
           POSTGRES_DB: butler_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U postgres -d butler_test"
+          --health-cmd="pg_isready -U ai-butler -d butler_test"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
 
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/butler_test
+      DATABASE_URL: postgresql://ai-butler:01234@localhost:5432/butler_test
       SECRET_KEY: supersecretkey_for_tests
       ACCESS_TOKEN_EXPIRE_MINUTES: 60
       OPENAI_API_KEY: test_key
@@ -38,7 +38,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
@@ -48,7 +48,7 @@ jobs:
       - name: Wait for Postgres
         run: |
           for i in {1..10}; do
-            if pg_isready -h localhost -U postgres -d butler_test; then
+            if pg_isready -h localhost -U ai-butler -d butler_test; then
               echo "✅ Postgres está listo"
               break
             fi
@@ -58,10 +58,11 @@ jobs:
 
       - name: Run Alembic migrations
         run: |
-          alembic upgrade head
+          python -m alembic upgrade head
 
       - name: Run tests
         run: |
           pytest tests/ --maxfail=1 --disable-warnings -q
+
 
 

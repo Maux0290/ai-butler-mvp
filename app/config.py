@@ -32,7 +32,7 @@ class Settings(BaseSettings):
         """
         if self.DATABASE_URL:
             return self.DATABASE_URL
-
+    
         if self.POSTGRES_USER and self.POSTGRES_PASSWORD and self.POSTGRES_DB:
             return (
                 f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"

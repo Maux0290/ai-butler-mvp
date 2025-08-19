@@ -62,7 +62,10 @@ jobs:
           done
 
       - name: Run Alembic migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: alembic upgrade head
+
 
       - name: Run tests
         run: pytest tests/ --maxfail=1 --disable-warnings -q

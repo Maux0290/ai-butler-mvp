@@ -15,7 +15,7 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: ai-butler
-          POSTGRES_PASSWORD: 01234
+          POSTGRES_PASSWORD: ai-butler-test
           POSTGRES_DB: butler_test
         ports:
           - 5432:5432
@@ -26,7 +26,7 @@ jobs:
           --health-retries=5
 
     env:
-      DATABASE_URL: postgresql://ai-butler:01234@localhost:5432/butler_test
+      DATABASE_URL: postgresql+psycopg2://ai-butler:ai-butler-test@localhost:5432/butler_test
       SECRET_KEY: supersecretkey_for_tests
       ACCESS_TOKEN_EXPIRE_MINUTES: 60
       OPENAI_API_KEY: test_key
@@ -44,7 +44,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install alembic
+          pip install alembic pytest psycopg2-binary
 
       - name: Wait for Postgres
         run: |
@@ -58,12 +58,8 @@ jobs:
           done
 
       - name: Run Alembic migrations
-        run: |
-          python -m alembic upgrade head
+        run: alembic upgrade head
 
       - name: Run tests
-        run: |
-          pytest tests/ --maxfail=1 --disable-warnings -q
-
-
+        run: pytest tests/ --maxfail=1 --disable-warnings -q
 

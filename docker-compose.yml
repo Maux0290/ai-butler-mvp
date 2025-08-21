@@ -23,14 +23,14 @@ services:
     container_name: ai-butler-db
     restart: always
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: postgres
+      POSTGRES_USER: ai-butler
+      POSTGRES_PASSWORD: ai-butler-test
+      POSTGRES_DB: butler_test
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./data/init:/docker-entrypoint-initdb.d    # 👈 nueva ruta para init.sql
+      - ./data/init:/docker-entrypoint-initdb.d
     networks:
       - ai-butler-net
 
@@ -51,7 +51,7 @@ services:
     networks:
       - ai-butler-net
     environment:
-      - TESTING=1      
+      - TESTING=1     
 
   # --------- (Opcional: pgAdmin) ---------
   # pgadmin:
@@ -59,12 +59,13 @@ services:
   #   container_name: pgadmin
   #   restart: unless-stopped
   #   environment:
-  #     PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL}
-  #     PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
+  #     PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
+  #     PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
   #   ports:
   #     - "5050:80"
   #   depends_on:
-  #     - db
+  #     db:
+  #       condition: service_healthy
   #   networks:
   #     - ai-butler-net
 

@@ -31,6 +31,7 @@ jobs:
       ACCESS_TOKEN_EXPIRE_MINUTES: 60
       OPENAI_API_KEY: test_key
       ALGORITHM: HS256
+      PYTHONPATH: ./   # 👈 le decimos que el root del repo es parte del sys.path
 
     steps:
       - uses: actions/checkout@v4
@@ -62,4 +63,5 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ --maxfail=1 --disable-warnings -q
+
 
